@@ -1,92 +1,105 @@
+const mongoose = require("mongoose");
 const express = require("express");
-const MongoClient = require("mongodb").MongoClient;
-const objectId = require("mongodb").ObjectID;
-
+const Schema = mongoose.Schema;
 const app = express();
 const jsonParser = express.json();
 
-const mongoClient = new MongoClient("mongodb://localhost:27017", { useUnifiedTopology: true });
-
-let dbClient;
+const userScheme = new Schema({ name: String, age: Number }, { versionKey: false });
+const User = mongoose.model("User", userScheme);
 
 app.use(express.static(__dirname + "/public"));
 
-mongoClient.connect(function (err, client) {
-    if (err) return console.log(err);
-    dbClient = client;
-    app.locals.collection = client.db("usersdb").collection("users");
-    app.listen(3000, function () {
-        console.log("Waiting for connection...");
+mongoose.set("strictQuery", false);
+
+mongoose.connect("mongodb://127.0.0.1:27017/usersdb", { useUnifiedTopology: true, useNewUrlParser: true })
+    .then(() => {
+        app.listen(3000, function () {
+            console.log("Сервер очікує підключення...");
+        });
+    })
+    .catch(err => {
+        console.error("Error connecting to MongoDB:", err);
     });
-});
+
 
 app.get("/api/users", function (req, res) {
-
-    const collection = req.app.locals.collection;
-    collection.find({}).toArray(function (err, users) {
-
-        if (err) return console.log(err);
-        res.send(users)
-    });
-
-});
-app.get("/api/users/:id", function (req, res) {
-
-    const id = new objectId(req.params.id);
-    const collection = req.app.locals.collection;
-    collection.findOne({ _id: id }, function (err, user) {
-
-        if (err) return console.log(err);
-        res.send(user);
-    });
-});
-
-app.post("/api/users", jsonParser, function (req, res) {
-
-    if (!req.body) return res.sendStatus(400);
-
-    const userName = req.body.name;
-    const userAge = req.body.age;
-    const user = { name: userName, age: userAge };
-
-    const collection = req.app.locals.collection;
-    collection.insertOne(user, function (err, result) {
-
-        if (err) return console.log(err);
-        res.send(user);
-    });
-});
-
-app.delete("/api/users/:id", function (req, res) {
-
-    const id = new objectId(req.params.id);
-    const collection = req.app.locals.collection;
-    collection.findOneAndDelete({ _id: id }, function (err, result) {
-
-        if (err) return console.log(err);
-        let user = result.value;
-        res.send(user);
-    });
-});
-
-app.put("/api/users", jsonParser, function (req, res) {
-
-    if (!req.body) return res.sendStatus(400);
-    const id = new objectId(req.body.id);
-    const userName = req.body.name;
-    const userAge = req.body.age;
-
-    const collection = req.app.locals.collection;
-    collection.findOneAndUpdate({ _id: id }, { $set: { age: userAge, name: userName } },
-        { returnDocument: 'after' }, function (err, result) {
-
-            if (err) return console.log(err);
-            const user = result.value;
-            res.send(user);
+    User.find({})
+        .then(users => {
+            res.send(users);
+        })
+        .catch(err => {
+            console.error("Error fetching users:", err);
+            res.status(500).send("Internal Server Error");
         });
 });
 
-process.on("SIGINT", () => {
-    dbClient.close();
-    process.exit();
+app.get("/api/users/:id", function (req, res) {
+    const id = req.params.id;
+    User.findOne({ _id: id })
+        .then(user => {
+            if (!user) {
+                return res.status(404).send("User not found");
+            }
+            res.send(user);
+        })
+        .catch(err => {
+            console.error("Error fetching user:", err);
+            res.status(500).send("Internal Server Error");
+        });
+});
+
+
+app.post("/api/users", jsonParser, function (req, res) {
+    if (!req.body) return res.sendStatus(400);
+
+    const userName = req.body.name;
+    const userAge = req.body.age;
+    const user = new User({ name: userName, age: userAge });
+
+    user.save()
+        .then(savedUser => {
+            res.send(savedUser);
+        })
+        .catch(err => {
+            console.error("Error saving user:", err);
+            res.status(500).send("Internal Server Error");
+        });
+});
+
+
+app.delete("/api/users/:id", function (req, res) {
+    const id = req.params.id;
+    User.findByIdAndDelete(id)
+        .then(deletedUser => {
+            if (!deletedUser) {
+                return res.status(404).send("User not found");
+            }
+            res.send(deletedUser);
+        })
+        .catch(err => {
+            console.error("Error deleting user:", err);
+            res.status(500).send("Internal Server Error");
+        });
+});
+
+app.listen(3001, function () {
+    console.log("Сервер очікує підключення...");
+});
+
+
+app.put("/api/users", jsonParser, function (req, res) {
+    if (!req.body) return res.sendStatus(400);
+    const id = req.body.id;
+    const userName = req.body.name;
+    const userAge = req.body.age;
+    const newUser = { age: userAge, name: userName };
+
+    User.findByIdAndUpdate(id, newUser, { new: true })
+        .then(updatedUser => {
+            res.send(updatedUser);
+        })
+        .catch(err => {
+            console.error("Error updating user:", err);
+            res.status(500).send("Internal Server Error");
+        });
 });
